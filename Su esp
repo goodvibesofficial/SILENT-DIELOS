@@ -1,21 +1,151 @@
---------------------------------------------------------------------------------
--- 4. SISTEMA DE SILENT AIM DEFINITIVO PARA TABLET (Touch & Camera Hooks)
---------------------------------------------------------------------------------
+--[[
+================================================================================
+    PROJECT: Good Vibes - Ultimate Tablet Silent Aim & Skeleton ESP (v4.0)
+    Features: 
+    - 3D Skeleton ESP with Dynamic Neon Random Colorization & Team-Check
+    - Tablet-Optimized Silent Aim (ScreenPointToRay, Raycast, and Remote Hooks)
+    - Interactive Cyberpunk Floating Control Panel
+================================================================================
+]]
+
+local CoreGui = game:GetService("CoreGui")
 local Players = game:GetService("Players")
-local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
 local Camera = Workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
--- Configuraciones Avanzadas para Tablet
-local settings = {
-    aimbotEnabled = true,
-    predictionEnabled = true,
-    predictionAmount = 0.15, -- Ajustable para compensar la latencia en tablets
-    wallCheck = true
+-- Clean up previous instances to prevent duplicates
+if CoreGui:FindFirstChild("GoodVibesTabletSilentESP") then
+    CoreGui.GoodVibesTabletSilentESP:Destroy()
+end
+
+local screen = Instance.new("ScreenGui")
+screen.Name = "GoodVibesTabletSilentESP"
+screen.ScreenInsets = Enum.ScreenInsets.DeviceSafeInsets
+screen.Parent = CoreGui
+
+-- Cyberpunk Palette
+local THEME = {
+    Container = Color3.fromRGB(14, 11, 22),
+    Element = Color3.fromRGB(20, 16, 32),
+    NeonPrimary = Color3.fromRGB(192, 38, 211),   -- Deep Cyber Fuchsia
+    NeonSecondary = Color3.fromRGB(56, 189, 248), -- Cyan Tech Accent
+    Text = Color3.fromRGB(245, 243, 255),
+    Subtext = Color3.fromRGB(139, 92, 246)
 }
 
--- Función de Predicción de Movimiento (Vital para objetivos en movimiento en pantallas táctiles)
+local function corner(parent, value)
+    local UICorner = Instance.new("UICorner")
+    UICorner.CornerRadius = UDim.new(0, value)
+    UICorner.Parent = parent
+end
+
+local function stroke(parent, color, thickness)
+    local UIStroke = Instance.new("UIStroke")
+    UIStroke.Name = "DynamicStroke"
+    UIStroke.Color = color
+    UIStroke.Thickness = thickness
+    UIStroke.Transparency = 0.2
+    UIStroke.Parent = parent
+end
+
+-- ============================================================================
+-- CONTROL PANEL UI (Floating Toggle Window)
+-- ============================================================================
+local mainPanel = Instance.new("Frame")
+mainPanel.Size = UDim2.new(0, 220, 0, 110)
+mainPanel.Position = UDim2.new(0.02, 0, 0.3, 0)
+mainPanel.BackgroundColor3 = THEME.Container
+mainPanel.Draggable = true
+mainPanel.Active = true
+mainPanel.Parent = screen
+
+corner(mainPanel, 12)
+stroke(mainPanel, THEME.NeonPrimary, 1.5)
+
+local panelTitle = Instance.new("TextLabel")
+panelTitle.Size = UDim2.new(1, 0, 0, 30)
+panelTitle.BackgroundTransparency = 1
+panelTitle.RichText = true
+panelTitle.Text = "<font color='#C026D3'>GOOD VIBES</font> <font color='#38BDF8'>// TABLET</font>"
+panelTitle.Font = Enum.Font.Code
+panelTitle.TextSize = 12
+panelTitle.TextXAlignment = Enum.TextXAlignment.Center
+panelTitle.Parent = mainPanel
+
+-- Toggle ESP Button
+local espToggle = Instance.new("TextButton")
+espToggle.Size = UDim2.new(0.9, 0, 0, 32)
+espToggle.Position = UDim2.new(0.05, 0, 0, 32)
+espToggle.BackgroundColor3 = THEME.Element
+espToggle.RichText = true
+espToggle.Text = "<font color='#38BDF8'>ESP SKELETON:</font> <font color='#F87171'><b>[OFF]</b></font>"
+espToggle.Font = Enum.Font.Code
+espToggle.TextSize = 11
+espToggle.Parent = mainPanel
+
+corner(espToggle, 8)
+stroke(espToggle, THEME.NeonPrimary, 1)
+
+-- Toggle Silent Aim Button
+local aimToggle = Instance.new("TextButton")
+aimToggle.Size = UDim2.new(0.9, 0, 0, 32)
+aimToggle.Position = UDim2.new(0.05, 0, 0, 68)
+aimToggle.BackgroundColor3 = THEME.Element
+aimToggle.RichText = true
+aimToggle.Text = "<font color='#38BDF8'>SILENT AIM:</font> <font color='#F87171'><b>[OFF]</b></font>"
+aimToggle.Font = Enum.Font.Code
+aimToggle.TextSize = 11
+aimToggle.Parent = mainPanel
+
+corner(aimToggle, 8)
+stroke(aimToggle, THEME.NeonSecondary, 1)
+
+local espEnabled = false
+local silentAimEnabled = false
+
+espToggle.MouseButton1Click:Connect(function()
+    espEnabled = not espEnabled
+    if espEnabled then
+        espToggle.Text = "<font color='#38BDF8'>ESP SKELETON:</font> <font color='#34D399'><b>[ON]</b></font>"
+    else
+        espToggle.Text = "<font color='#38BDF8'>ESP SKELETON:</font> <font color='#F87171'><b>[OFF]</b></font>"
+    end
+end)
+
+aimToggle.MouseButton1Click:Connect(function()
+    silentAimEnabled = not silentAimEnabled
+    if silentAimEnabled then
+        aimToggle.Text = "<font color='#38BDF8'>SILENT AIM:</font> <font color='#34D399'><b>[ON]</b></font>"
+    else
+        aimToggle.Text = "<font color='#38BDF8'>SILENT AIM:</font> <font color='#F87171'><b>[OFF]</b></font>"
+    end
+end)
+
+-- ============================================================================
+-- TEAM CHECK FUNCTION
+-- ============================================================================
+local function isEnemy(player)
+    if player == LocalPlayer then return false end
+    if not player.Character then return false end
+    
+    if LocalPlayer.Team and player.Team then
+        return player.Team ~= LocalPlayer.Team
+    end
+    
+    return true
+end
+
+-- ============================================================================
+-- SILENT AIM & TABLET OPTIMIZATION HOOKS
+-- ============================================================================
+local settings = {
+    predictionEnabled = true,
+    predictionAmount = 0.15
+}
+
 local function getPredictedPosition(targetPart)
     if settings.predictionEnabled and targetPart and targetPart.Parent then
         local velocity = targetPart.AssemblyLinearVelocity
@@ -26,40 +156,59 @@ local function getPredictedPosition(targetPart)
     return targetPart and targetPart.Position or Vector3.new(0,0,0)
 end
 
+local function getClosestEnemyHead()
+    local closestTarget = nil
+    local shortestDist = math.huge
+    
+    for _, player in ipairs(Players:GetPlayers()) do
+        if isEnemy(player) then
+            local char = player.Character
+            if char and char:FindFirstChild("Head") and char:FindFirstChild("Humanoid") and char.Humanoid.Health > 0 then
+                local head = char.Head
+                local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                
+                if onScreen then
+                    local touchPos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                    local dist = (Vector2.new(screenPos.X, screenPos.Y) - touchPos).Magnitude
+                    
+                    if dist < shortestDist and dist < 350 then
+                        shortestDist = dist
+                        closestTarget = head
+                    end
+                end
+            end
+        end
+    end
+    
+    return closestTarget
+end
+
 local mt = getrawmetatable(game)
 local oldNamecall = mt.__namecall
 setreadonly(mt, false)
 
---------------------------------------------------------------------------------
--- NAMECALL HOOK (Optimizado para Tableta / Pantallas Táctiles)
---------------------------------------------------------------------------------
 mt.__namecall = newcclosure(function(self, ...)
     local method = getnamecallmethod()
     local args = {...}
 
-    if not checkcaller() and settings.aimbotEnabled then
-        local target = getClosestEnemyLegit() -- Tu función de selección de objetivo
+    if not checkcaller() and silentAimEnabled then
+        local targetHead = getClosestEnemyHead()
         
-        if target then
-            local predictedPos = getPredictedPosition(target)
+        if targetHead then
+            local predictedPos = getPredictedPosition(targetHead)
 
-            -- 1. INTERCEPCIÓN TÁCTIL / CÁMARA (Cuando tocas la pantalla de la tablet)
-            -- Los juegos de tablet usan la cámara para proyectar el toque del dedo al mundo 3D.
             if self == Camera and (method == "ScreenPointToRay" or method == "ViewportPointToRay") then
                 local origin = Camera.CFrame.Position
                 local direction = (predictedPos - origin).Unit
-                -- Forzamos a que cualquier toque devuelva un rayo directo al enemigo
                 return Ray.new(origin, direction)
             end
 
-            -- 2. INTERCEPCIÓN DE RAYCASTS DEL MOTOR DEL JUEGO (Workspace:Raycast)
             if method == "Raycast" then
                 local origin = args[1]
                 local direction = (predictedPos - origin).Unit * 1000 
                 args[2] = direction
                 return oldNamecall(self, unpack(args))
             
-            -- 3. INTERCEPCIÓN LEGACY (FindPartOnRay para juegos más antiguos)
             elseif method == "FindPartOnRay" or method == "FindPartOnRayWithIgnoreList" or method == "FindPartOnRayWithWhitelist" then
                 local origin = args[1].Origin
                 local direction = (predictedPos - origin).Unit * 1000
@@ -67,13 +216,10 @@ mt.__namecall = newcclosure(function(self, ...)
                 return oldNamecall(self, unpack(args))
             end
             
-            -- 4. INTERCEPCIÓN DE REMOTES (FireServer para botones de disparo en UI de Tablet)
             if method == "FireServer" then
                 local remoteName = tostring(self.Name):lower()
-                -- Detecta eventos típicos de armas en juegos móviles (Shoot, Fire, GunEvent, Combat)
                 if remoteName:match("shoot") or remoteName:match("fire") or remoteName:match("attack") or remoteName:match("bullet") then
                     for i, v in pairs(args) do
-                        -- Si el juego manda la posición del toque o dirección de bala, la reemplazamos por el blanco
                         if typeof(v) == "Vector3" then
                             args[i] = predictedPos
                         elseif typeof(v) == "CFrame" then
@@ -89,4 +235,147 @@ mt.__namecall = newcclosure(function(self, ...)
     return oldNamecall(self, unpack(args))
 end)
 setreadonly(mt, true)
+
+-- ============================================================================
+-- SKELETON ESP LOGIC (Random Neon Colors & Team Filter)
+-- ============================================================================
+local NEON_COLORS = {
+    Color3.fromRGB(192, 38, 211),
+    Color3.fromRGB(56, 189, 248),
+    Color3.fromRGB(52, 211, 153),
+    Color3.fromRGB(244, 114, 182),
+    Color3.fromRGB(251, 191, 36),
+    Color3.fromRGB(129, 140, 248),
+    Color3.fromRGB(236, 72, 153)
+}
+
+local function getRandomNeonColor()
+    return NEON_COLORS[math.random(1, #NEON_COLORS)]
+end
+
+local activeSkeletons = {}
+
+local R15_BONES = {
+    {"Head", "UpperTorso"},
+    {"UpperTorso", "LowerTorso"},
+    {"UpperTorso", "LeftUpperArm"},
+    {"LeftUpperArm", "LeftLowerArm"},
+    {"LeftLowerArm", "LeftHand"},
+    {"UpperTorso", "RightUpperArm"},
+    {"RightUpperArm", "RightLowerArm"},
+    {"RightLowerArm", "RightHand"},
+    {"LowerTorso", "LeftUpperLeg"},
+    {"LeftUpperLeg", "LeftLowerLeg"},
+    {"LeftLowerLeg", "LeftFoot"},
+    {"LowerTorso", "RightUpperLeg"},
+    {"RightUpperLeg", "RightLowerLeg"},
+    {"RightLowerLeg", "RightFoot"}
+}
+
+local function createSkeletonLines()
+    local lines = {}
+    for _ = 1, #R15_BONES do
+        local line = Drawing.new("Line")
+        line.Visible = false
+        line.Thickness = 2
+        line.Transparency = 0.9
+        table.insert(lines, line)
+    end
+    return lines
+end
+
+local function removeSkeletonLines(lines)
+    if lines then
+        for _, line in ipairs(lines) do
+            pcall(function() line:Remove() end)
+        end
+    end
+end
+
+local function clearAllSkeletons()
+    for player, data in pairs(activeSkeletons) do
+        removeSkeletonLines(data.Lines)
+        activeSkeletons[player] = nil
+    end
+end
+
+RunService.RenderStepped:Connect(function()
+    if not espEnabled then
+        clearAllSkeletons()
+        return
+    end
+    
+    for _, player in ipairs(Players:GetPlayers()) do
+        if isEnemy(player) then
+            local character = player.Character
+            if character and character:FindFirstChild("HumanoidRootPart") and character:FindFirstChild("Humanoid") and character.Humanoid.Health > 0 then
+                
+                if not activeSkeletons[player] then
+                    activeSkeletons[player] = {
+                        Lines = createSkeletonLines(),
+                        Color = getRandomNeonColor()
+                    }
+                end
+                
+                local skeletonData = activeSkeletons[player]
+                local lines = skeletonData.Lines
+                local boneColor = skeletonData.Color
+                
+                local allVisible = true
+                local projectedBones = {}
+                
+                for _, bonePair in ipairs(R15_BONES) do
+                    local partA = character:FindFirstChild(bonePair[1])
+                    local partB = character:FindFirstChild(bonePair[2])
+                    
+                    if partA and partB then
+                        local posA, onScreenA = Camera:WorldToViewportPoint(partA.Position)
+                        local posB, onScreenB = Camera:WorldToViewportPoint(partB.Position)
+                        
+                        if onScreenA or onScreenB then
+                            table.insert(projectedBones, {Vector2.new(posA.X, posA.Y), Vector2.new(posB.X, posB.Y)})
+                        else
+                            allVisible = false
+                            break
+                        end
+                    else
+                        allVisible = false
+                        break
+                    end
+                end
+                
+                if allVisible and #projectedBones == #R15_BONES then
+                    for i, line in ipairs(lines) do
+                        local boneCoords = projectedBones[i]
+                        line.From = boneCoords[1]
+                        line.To = boneCoords[2]
+                        line.Color = boneColor
+                        line.Visible = true
+                    end
+                else
+                    for _, line in ipairs(lines) do
+                        line.Visible = false
+                    end
+                end
+            else
+                if activeSkeletons[player] then
+                    removeSkeletonLines(activeSkeletons[player].Lines)
+                    activeSkeletons[player] = nil
+                end
+            end
+        else
+            if activeSkeletons[player] then
+                removeSkeletonLines(activeSkeletons[player].Lines)
+                activeSkeletons[player] = nil
+            end
+        end
+    end
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    if activeSkeletons[player] then
+        removeSkeletonLines(activeSkeletons[player].Lines)
+        activeSkeletons[player] = nil
+    end
+end)
 
