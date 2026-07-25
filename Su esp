@@ -1,231 +1,92 @@
+--------------------------------------------------------------------------------
+-- 4. SISTEMA DE SILENT AIM DEFINITIVO PARA TABLET (Touch & Camera Hooks)
+--------------------------------------------------------------------------------
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local CoreGui = game:GetService("CoreGui")
+local Workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
+local Camera = Workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
 
-local localPlayer = Players.LocalPlayer
-local camera = workspace.CurrentCamera
-
--- Configuración de Estados
+-- Configuraciones Avanzadas para Tablet
 local settings = {
-	aimbotEnabled = false,
-	espEnabled = false,
-	aimKey = Enum.UserInputType.MouseButton2, -- Clic derecho para activar el aimbot
+    aimbotEnabled = true,
+    predictionEnabled = true,
+    predictionAmount = 0.15, -- Ajustable para compensar la latencia en tablets
+    wallCheck = true
 }
 
--- Almacén para los elementos visuales del ESP
-local espCache = {}
-
---------------------------------------------------------------------------------
--- 1. CREACIÓN DE LA INTERFAZ GRÁFICA (GUI)
---------------------------------------------------------------------------------
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "VibeControlPanel"
-screenGui.ResetOnSpawn = false
-screenGui.Parent = CoreGui
-
-local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 200, 0, 150)
-mainFrame.Position = UDim2.new(0.05, 0, 0.2, 0)
-mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-mainFrame.BorderSizePixel = 0
-mainFrame.Active = true
-mainFrame.Draggable = true
-mainFrame.Parent = screenGui
-
-local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, 8)
-corner.Parent = mainFrame
-
-local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, 0, 0, 30)
-title.BackgroundTransparency = 1
-title.Text = "Control Panel"
-title.TextColor3 = Color3.fromRGB(255, 255, 255)
-title.TextSize = 16
-title.Font = Enum.Font.GothamBold
-title.Parent = mainFrame
-
--- Botón Aimbot
-local aimbotBtn = Instance.new("TextButton")
-aimbotBtn.Size = UDim2.new(0.9, 0, 0, 40)
-aimbotBtn.Position = UDim2.new(0.05, 0, 0.3, 0)
-aimbotBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-aimbotBtn.Text = "Aimbot: OFF"
-aimbotBtn.TextColor3 = Color3.fromRGB(255, 100, 100)
-aimbotBtn.TextSize = 14
-aimbotBtn.Font = Enum.Font.GothamMedium
-aimbotBtn.Parent = mainFrame
-Instance.new("UICorner", aimbotBtn).CornerRadius = UDim.new(0, 6)
-
--- Botón ESP
-local espBtn = Instance.new("TextButton")
-espBtn.Size = UDim2.new(0.9, 0, 0, 40)
-espBtn.Position = UDim2.new(0.05, 0, 0.65, 0)
-espBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-espBtn.Text = "ESP Esqueleto: OFF"
-espBtn.TextColor3 = Color3.fromRGB(255, 100, 100)
-espBtn.TextSize = 14
-espBtn.Font = Enum.Font.GothamMedium
-espBtn.Parent = mainFrame
-Instance.new("UICorner", espBtn).CornerRadius = UDim.new(0, 6)
-
---------------------------------------------------------------------------------
--- 2. LÓGICA DE INTERACCIÓN DE LA GUI
---------------------------------------------------------------------------------
-aimbotBtn.MouseButton1Click:Connect(function()
-	settings.aimbotEnabled = not settings.aimbotEnabled
-	if settings.aimbotEnabled then
-		aimbotBtn.Text = "Aimbot: ON"
-		aimbotBtn.TextColor3 = Color3.fromRGB(100, 255, 100)
-	else
-		aimbotBtn.Text = "Aimbot: OFF"
-		aimbotBtn.TextColor3 = Color3.fromRGB(255, 100, 100)
-	end
-end)
-
-espBtn.MouseButton1Click:Connect(function()
-	settings.espEnabled = not settings.espEnabled
-	if settings.espEnabled then
-		espBtn.Text = "ESP Esqueleto: ON"
-		espBtn.TextColor3 = Color3.fromRGB(100, 255, 100)
-	else
-		espBtn.Text = "ESP Esqueleto: OFF"
-		espBtn.TextColor3 = Color3.fromRGB(255, 100, 100)
-		-- Limpiar ESP al apagar
-		for _, data in pairs(espCache) do
-			if data.lines then
-				for _, line in pairs(data.lines) do
-					line:Remove()
-				end
-			end
-		end
-		espCache = {}
-	end
-end)
-
---------------------------------------------------------------------------------
--- 3. FUNCIONES DE VALIDACIÓN (Ignorar amigos / mismo equipo)
---------------------------------------------------------------------------------
-local function isEnemy(player)
-	if player == localPlayer then return false end
-	
-	-- Ignorar si están en el mismo equipo (si tu juego usa Teams)
-	if localPlayer.Team and player.Team and localPlayer.Team == player.Team then
-		return false
-	end
-	
-	-- Ignorar amigos de Roblox
-	local success, isFriend = pcall(function()
-		return localPlayer:IsFriendsWith(player.UserId)
-	end)
-	if success and isFriend then
-		return false
-	end
-	
-	return true
+-- Función de Predicción de Movimiento (Vital para objetivos en movimiento en pantallas táctiles)
+local function getPredictedPosition(targetPart)
+    if settings.predictionEnabled and targetPart and targetPart.Parent then
+        local velocity = targetPart.AssemblyLinearVelocity
+        if velocity.Magnitude > 0 then
+            return targetPart.Position + (velocity * settings.predictionAmount)
+        end
+    end
+    return targetPart and targetPart.Position or Vector3.new(0,0,0)
 end
 
---------------------------------------------------------------------------------
--- 4. SISTEMA DE AIMBOT (Redirigir a enemigo más cercano)
---------------------------------------------------------------------------------
-local function getClosestEnemy()
-	local closestTarget = nil
-	local shortestDistance = math.huge
-
-	for _, player in ipairs(Players:GetPlayers()) do
-		if isEnemy(player) and player.Character then
-			local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-			local head = player.Character:FindFirstChild("Head")
-			
-			if humanoid and humanoid.Health > 0 and head then
-				local screenPos, onScreen = camera:WorldToViewportPoint(head.Position)
-				if onScreen then
-					local mousePos = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
-					local distance = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
-					
-					if distance < shortestDistance then
-						shortestDistance = distance
-						closestTarget = head
-					end
-				end
-			end
-		end
-	end
-
-	return closestTarget
-end
-
-RunService.RenderStepped:Connect(function()
-	if settings.aimbotEnabled then
-		-- Si se presiona el botón asignado, ajusta la cámara o dirección hacia el enemigo
-		local target = getClosestEnemy()
-		if target then
-			camera.CFrame = CFrame.new(camera.CFrame.Position, target.Position)
-		end
-	end
+local mt = getrawmetatable(game)
+local oldNamecall = mt.__namecall
+setreadonly(mt, false)
 
 --------------------------------------------------------------------------------
--- 5. SISTEMA ESP ESQUELETO RAINBOW
+-- NAMECALL HOOK (Optimizado para Tableta / Pantallas Táctiles)
 --------------------------------------------------------------------------------
-	if settings.espEnabled then
-		-- Color dinámico estilo Rainbow basado en el tiempo
-		local rainbowColor = Color3.fromHSV(tick() % 5 / 5, 1, 1)
+mt.__namecall = newcclosure(function(self, ...)
+    local method = getnamecallmethod()
+    local args = {...}
 
-		-- Definir conexiones de huesos comunes en R15 y R6
-		local bonesR15 = {
-			{"Head", "UpperTorso"},
-			{"UpperTorso", "LowerTorso"},
-			{"UpperTorso", "LeftUpperArm"}, {"LeftUpperArm", "LeftLowerArm"}, {"LeftLowerArm", "LeftHand"},
-			{"UpperTorso", "RightUpperArm"}, {"RightUpperArm", "RightLowerArm"}, {"RightLowerArm", "RightHand"},
-			{"LowerTorso", "LeftUpperLeg"}, {"LeftUpperLeg", "LeftLowerLeg"}, {"LeftLowerLeg", "LeftFoot"},
-			{"LowerTorso", "RightUpperLeg"}, {"RightUpperLeg", "RightLowerLeg"}, {"RightLowerLeg", "RightFoot"}
-		}
+    if not checkcaller() and settings.aimbotEnabled then
+        local target = getClosestEnemyLegit() -- Tu función de selección de objetivo
+        
+        if target then
+            local predictedPos = getPredictedPosition(target)
 
-		for _, player in ipairs(Players:GetPlayers()) do
-			if isEnemy(player) and player.Character then
-				local char = player.Character
-				if not espCache[player] then
-					espCache[player] = { lines = {} }
-				end
+            -- 1. INTERCEPCIÓN TÁCTIL / CÁMARA (Cuando tocas la pantalla de la tablet)
+            -- Los juegos de tablet usan la cámara para proyectar el toque del dedo al mundo 3D.
+            if self == Camera and (method == "ScreenPointToRay" or method == "ViewportPointToRay") then
+                local origin = Camera.CFrame.Position
+                local direction = (predictedPos - origin).Unit
+                -- Forzamos a que cualquier toque devuelva un rayo directo al enemigo
+                return Ray.new(origin, direction)
+            end
 
-				-- Dibujar líneas de esqueleto usando Drawing API (Líneas 2D en pantalla)
-				for i, bonePair in ipairs(bonesR15) do
-					local p1 = char:FindFirstChild(bonePair[1])
-					local p2 = char:FindFirstChild(bonePair[2])
+            -- 2. INTERCEPCIÓN DE RAYCASTS DEL MOTOR DEL JUEGO (Workspace:Raycast)
+            if method == "Raycast" then
+                local origin = args[1]
+                local direction = (predictedPos - origin).Unit * 1000 
+                args[2] = direction
+                return oldNamecall(self, unpack(args))
+            
+            -- 3. INTERCEPCIÓN LEGACY (FindPartOnRay para juegos más antiguos)
+            elseif method == "FindPartOnRay" or method == "FindPartOnRayWithIgnoreList" or method == "FindPartOnRayWithWhitelist" then
+                local origin = args[1].Origin
+                local direction = (predictedPos - origin).Unit * 1000
+                args[1] = Ray.new(origin, direction)
+                return oldNamecall(self, unpack(args))
+            end
+            
+            -- 4. INTERCEPCIÓN DE REMOTES (FireServer para botones de disparo en UI de Tablet)
+            if method == "FireServer" then
+                local remoteName = tostring(self.Name):lower()
+                -- Detecta eventos típicos de armas en juegos móviles (Shoot, Fire, GunEvent, Combat)
+                if remoteName:match("shoot") or remoteName:match("fire") or remoteName:match("attack") or remoteName:match("bullet") then
+                    for i, v in pairs(args) do
+                        -- Si el juego manda la posición del toque o dirección de bala, la reemplazamos por el blanco
+                        if typeof(v) == "Vector3" then
+                            args[i] = predictedPos
+                        elseif typeof(v) == "CFrame" then
+                            args[i] = CFrame.new(predictedPos)
+                        end
+                    end
+                    return oldNamecall(self, unpack(args))
+                end
+            end
+        end
+    end
 
-					if p1 and p2 then
-						local pos1, onScreen1 = camera:WorldToViewportPoint(p1.Position)
-						local pos2, onScreen2 = camera:WorldToViewportPoint(p2.Position)
-
-						if onScreen1 or onScreen2 then
-							if not espCache[player].lines[i] then
-								local line = Drawing.new("Line")
-								line.Thickness = 1.5
-								line.Visible = false
-								espCache[player].lines[i] = line
-							end
-
-							local line = espCache[player].lines[i]
-							line.From = Vector2.new(pos1.X, pos1.Y)
-							line.To = Vector2.new(pos2.X, pos2.Y)
-							line.Color = rainbowColor
-							line.Visible = true
-						else
-							if espCache[player].lines[i] then
-								espCache[player].lines[i].Visible = false
-							end
-						end
-					end
-				end
-			else
-				-- Limpiar si el jugador ya no es válido o está muerto
-				if espCache[player] and espCache[player].lines then
-					for _, line in pairs(espCache[player].lines) do
-						line.Visible = false
-					end
-				end
-			end
-		end
-	end
+    return oldNamecall(self, unpack(args))
 end)
+setreadonly(mt, true)
 
