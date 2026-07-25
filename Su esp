@@ -1,17 +1,16 @@
 --[[
 ================================================================================
-    PROJECT: Good Vibes - Ultimate Tablet Silent Aim & Skeleton ESP (v4.0)
-    Features: 
-    - 3D Skeleton ESP with Dynamic Neon Random Colorization & Team-Check
-    - Tablet-Optimized Silent Aim (ScreenPointToRay, Raycast, and Remote Hooks)
-    - Interactive Cyberpunk Floating Control Panel
+    PROJECT: Good Vibes - Ultimate Tablet Silent Aim & Neon Skeleton ESP (v4.1)
+    Fixes: 
+    - Fixed infinite loop/stack overflow crash in `__namecall` hook
+    - Fixed individual per-player random neon color refreshing loop
+    - Tablet-Optimized Silent Aim with Team Check & Prediction
 ================================================================================
 ]]
 
 local CoreGui = game:GetService("CoreGui")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 local Camera = Workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
@@ -30,8 +29,8 @@ screen.Parent = CoreGui
 local THEME = {
     Container = Color3.fromRGB(14, 11, 22),
     Element = Color3.fromRGB(20, 16, 32),
-    NeonPrimary = Color3.fromRGB(192, 38, 211),   -- Deep Cyber Fuchsia
-    NeonSecondary = Color3.fromRGB(56, 189, 248), -- Cyan Tech Accent
+    NeonPrimary = Color3.fromRGB(192, 38, 211),
+    NeonSecondary = Color3.fromRGB(56, 189, 248),
     Text = Color3.fromRGB(245, 243, 255),
     Subtext = Color3.fromRGB(139, 92, 246)
 }
@@ -52,7 +51,7 @@ local function stroke(parent, color, thickness)
 end
 
 -- ============================================================================
--- CONTROL PANEL UI (Floating Toggle Window)
+-- CONTROL PANEL UI
 -- ============================================================================
 local mainPanel = Instance.new("Frame")
 mainPanel.Size = UDim2.new(0, 220, 0, 110)
@@ -69,13 +68,12 @@ local panelTitle = Instance.new("TextLabel")
 panelTitle.Size = UDim2.new(1, 0, 0, 30)
 panelTitle.BackgroundTransparency = 1
 panelTitle.RichText = true
-panelTitle.Text = "<font color='#C026D3'>GOOD VIBES</font> <font color='#38BDF8'>// TABLET</font>"
+panelTitle.Text = "<font color='#C026D3'>GOOD VIBES</font> <font color='#38BDF8'>// TABLET v4.1</font>"
 panelTitle.Font = Enum.Font.Code
 panelTitle.TextSize = 12
 panelTitle.TextXAlignment = Enum.TextXAlignment.Center
 panelTitle.Parent = mainPanel
 
--- Toggle ESP Button
 local espToggle = Instance.new("TextButton")
 espToggle.Size = UDim2.new(0.9, 0, 0, 32)
 espToggle.Position = UDim2.new(0.05, 0, 0, 32)
@@ -89,7 +87,6 @@ espToggle.Parent = mainPanel
 corner(espToggle, 8)
 stroke(espToggle, THEME.NeonPrimary, 1)
 
--- Toggle Silent Aim Button
 local aimToggle = Instance.new("TextButton")
 aimToggle.Size = UDim2.new(0.9, 0, 0, 32)
 aimToggle.Position = UDim2.new(0.05, 0, 0, 68)
@@ -139,7 +136,7 @@ local function isEnemy(player)
 end
 
 -- ============================================================================
--- SILENT AIM & TABLET OPTIMIZATION HOOKS
+-- STABLE SILENT AIM & TABLET HOOKS (Crash Prevented)
 -- ============================================================================
 local settings = {
     predictionEnabled = true,
@@ -149,7 +146,7 @@ local settings = {
 local function getPredictedPosition(targetPart)
     if settings.predictionEnabled and targetPart and targetPart.Parent then
         local velocity = targetPart.AssemblyLinearVelocity
-        if velocity.Magnitude > 0 then
+        if velocity and velocity.Magnitude > 0 then
             return targetPart.Position + (velocity * settings.predictionAmount)
         end
     end
@@ -171,7 +168,7 @@ local function getClosestEnemyHead()
                     local touchPos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
                     local dist = (Vector2.new(screenPos.X, screenPos.Y) - touchPos).Magnitude
                     
-                    if dist < shortestDist and dist < 350 then
+                    if dist < shortestDist and dist < 400 then
                         shortestDist = dist
                         closestTarget = head
                     end
@@ -203,22 +200,25 @@ mt.__namecall = newcclosure(function(self, ...)
                 return Ray.new(origin, direction)
             end
 
-            if method == "Raycast" then
+            if method == "Raycast" and self == Workspace then
                 local origin = args[1]
                 local direction = (predictedPos - origin).Unit * 1000 
                 args[2] = direction
                 return oldNamecall(self, unpack(args))
             
             elseif method == "FindPartOnRay" or method == "FindPartOnRayWithIgnoreList" or method == "FindPartOnRayWithWhitelist" then
-                local origin = args[1].Origin
-                local direction = (predictedPos - origin).Unit * 1000
-                args[1] = Ray.new(origin, direction)
-                return oldNamecall(self, unpack(args))
+                local ray = args[1]
+                if typeof(ray) == "Ray" then
+                    local origin = ray.Origin
+                    local direction = (predictedPos - origin).Unit * 1000
+                    args[1] = Ray.new(origin, direction)
+                    return oldNamecall(self, unpack(args))
+                end
             end
             
             if method == "FireServer" then
                 local remoteName = tostring(self.Name):lower()
-                if remoteName:match("shoot") or remoteName:match("fire") or remoteName:match("attack") or remoteName:match("bullet") then
+                if remoteName:match("shoot") or remoteName:match("fire") or remoteName:match("attack") or remoteName:match("bullet") or remoteName:match("gun") then
                     for i, v in pairs(args) do
                         if typeof(v) == "Vector3" then
                             args[i] = predictedPos
@@ -237,20 +237,22 @@ end)
 setreadonly(mt, true)
 
 -- ============================================================================
--- SKELETON ESP LOGIC (Random Neon Colors & Team Filter)
+-- DYNAMIC INDIVIDUAL RANDOM NEON SKELETON ESP
 -- ============================================================================
-local NEON_COLORS = {
-    Color3.fromRGB(192, 38, 211),
-    Color3.fromRGB(56, 189, 248),
-    Color3.fromRGB(52, 211, 153),
-    Color3.fromRGB(244, 114, 182),
-    Color3.fromRGB(251, 191, 36),
-    Color3.fromRGB(129, 140, 248),
-    Color3.fromRGB(236, 72, 153)
+local NEON_PALETTE = {
+    Color3.fromRGB(192, 38, 211), -- Cyber Fuchsia
+    Color3.fromRGB(56, 189, 248), -- Cyan Tech
+    Color3.fromRGB(52, 211, 153), -- Neon Emerald
+    Color3.fromRGB(244, 114, 182),-- Hot Pink
+    Color3.fromRGB(251, 191, 36), -- Neon Gold
+    Color3.fromRGB(129, 140, 248),-- Indigo Glow
+    Color3.fromRGB(236, 72, 153), -- Bright Magenta
+    Color3.fromRGB(96, 165, 250), -- Sky Blue
+    Color3.fromRGB(168, 85, 247)  -- Purple Glow
 }
 
 local function getRandomNeonColor()
-    return NEON_COLORS[math.random(1, #NEON_COLORS)]
+    return NEON_PALETTE[math.random(1, #NEON_PALETTE)]
 end
 
 local activeSkeletons = {}
@@ -310,14 +312,23 @@ RunService.RenderStepped:Connect(function()
             local character = player.Character
             if character and character:FindFirstChild("HumanoidRootPart") and character:FindFirstChild("Humanoid") and character.Humanoid.Health > 0 then
                 
+                -- Assign individual random color upon creation, with color cycling loop support
                 if not activeSkeletons[player] then
                     activeSkeletons[player] = {
                         Lines = createSkeletonLines(),
-                        Color = getRandomNeonColor()
+                        Color = getRandomNeonColor(),
+                        LastChange = tick()
                     }
                 end
                 
                 local skeletonData = activeSkeletons[player]
+                
+                -- Change skeleton color dynamically every 3 seconds for individual variance
+                if tick() - skeletonData.LastChange > 3 then
+                    skeletonData.Color = getRandomNeonColor()
+                    skeletonData.LastChange = tick()
+                end
+                
                 local lines = skeletonData.Lines
                 local boneColor = skeletonData.Color
                 
